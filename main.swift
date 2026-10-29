@@ -106,6 +106,8 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 520, height: 860), configuration: config)
         // X 側のブラウザ判定で弾かれないよう、Safari のユーザーエージェントを名乗る
         webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15"
+        // 左右スワイプで戻る／進む（Safari と同じジェスチャ）
+        webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsMagnification = true
