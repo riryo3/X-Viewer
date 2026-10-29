@@ -1,11 +1,27 @@
 // X-Viewer — X（旧Twitter）を見るためだけの簡易ブラウザ
 // 中身は WKWebView ひとつ。X の中だけをこの窓で開き、
 // 外のサイトへのリンクは普段のブラウザで開く。
-// ボタンは画面の縁に広く配置する: 左端=戻る / 右端=進む / 上端・下端=ホーム。
+// ボタンは画面の縁に広く配置する: 左端=戻る / 右端=進む / 上端=ホーム / 下端=自分のプロフィール。
 import Cocoa
 import WebKit
 
 let homeURL = URL(string: "https://x.com/home")!
+
+/// 入力（プロフィール URL でも @username でも）からユーザー名を取り出す
+func parseUsername(_ raw: String) -> String? {
+    var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if s.isEmpty { return nil }
+    if let range = s.range(of: "x.com/") {
+        s = String(s[range.upperBound...])
+    } else if let range = s.range(of: "twitter.com/") {
+        s = String(s[range.upperBound...])
+    }
+    s = s.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+    s = s.split(separator: "/").first.map(String.init) ?? s
+    s = s.split(separator: "?").first.map(String.init) ?? s
+    let ok = s.range(of: "^[A-Za-z0-9_]{1,15}$", options: .regularExpression) != nil
+    return ok ? s : nil
+}
 
 /// この窓の中で開いてよいホストかどうか
 func isXHost(_ host: String?) -> Bool {
@@ -104,9 +120,9 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
         topZone.onClick = { [weak self] in self?.goHome() }
 
         let bottomZone = EdgeZone()
-        bottomZone.symbol = "house"
-        bottomZone.toolTip = "ホーム"
-        bottomZone.onClick = { [weak self] in self?.goHome() }
+        bottomZone.symbol = "person.circle"
+        bottomZone.toolTip = "プロフィール"
+        bottomZone.onClick = { [weak self] in self?.goProfile() }
 
         for zone in [backZone, forwardZone, topZone, bottomZone] {
             zone?.scrollTarget = webView
@@ -185,6 +201,11 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
         super.viewDidAppear()
         // 前回のフロート状態を復元する
         setFloat(UserDefaults.standard.bool(forKey: "floatOnTop"))
+        // 初回だけ、プロフィールの設定を聞く
+        if !UserDefaults.standard.bool(forKey: "profilePromptDone") {
+            UserDefaults.standard.set(true, forKey: "profilePromptDone")
+            if savedUsername() == nil { showProfileDialog() }
+        }
     }
 
     /// 最前面フロートの切り替え（状態は保存される）
@@ -207,6 +228,46 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
     @objc func reload() { webView.reload() }
     @objc func goHome() { webView.load(URLRequest(url: homeURL)) }
     @objc func toggleFloat() { setFloat(!floatOn) }
+
+    @objc func goProfile() {
+        if let name = savedUsername() {
+            webView.load(URLRequest(url: URL(string: "https://x.com/\(name)")!))
+        } else {
+            showProfileDialog()
+        }
+    }
+
+    @objc func editProfile() { showProfileDialog() }
+
+    func savedUsername() -> String? {
+        let s = UserDefaults.standard.string(forKey: "profileUsername")
+        return (s?.isEmpty == false) ? s : nil
+    }
+
+    /// プロフィール設定ダイアログ（URL でも @username でも可）
+    func showProfileDialog() {
+        let alert = NSAlert()
+        alert.messageText = "自分のプロフィールを設定"
+        alert.informativeText = "下の縁のボタンで、自分のプロフィールへ飛べるようになります。プロフィールの URL か @ユーザー名 を入れてください。"
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.placeholderString = "例: https://x.com/riryo3 または @riryo3"
+        if let name = savedUsername() { field.stringValue = "@" + name }
+        alert.accessoryView = field
+        alert.addButton(withTitle: "設定する")
+        alert.addButton(withTitle: "あとで")
+        alert.window.initialFirstResponder = field
+        if alert.runModal() == .alertFirstButtonReturn {
+            if let name = parseUsername(field.stringValue) {
+                UserDefaults.standard.set(name, forKey: "profileUsername")
+            } else {
+                let err = NSAlert()
+                err.messageText = "ユーザー名として読み取れませんでした"
+                err.informativeText = "入力は「https://x.com/ユーザー名」か「@ユーザー名」の形でお願いします。"
+                err.runModal()
+                showProfileDialog()
+            }
+        }
+    }
 
     // MARK: - 移動の振り分け
 
@@ -343,6 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         viewMenu.addItem(NSMenuItem(title: "進む", action: #selector(ViewController.goForward), keyEquivalent: "]"))
         viewMenu.addItem(NSMenuItem(title: "ホームへ", action: #selector(ViewController.goHome), keyEquivalent: "H"))
         viewMenu.addItem(NSMenuItem(title: "最前面に固定（フロート）", action: #selector(ViewController.toggleFloat), keyEquivalent: "t"))
+        viewMenu.addItem(NSMenuItem(title: "プロフィールを設定…", action: #selector(ViewController.editProfile), keyEquivalent: ""))
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 
