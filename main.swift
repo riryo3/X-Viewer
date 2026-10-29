@@ -10,7 +10,9 @@ let homeURL = URL(string: "https://x.com/home")!
 
 /// 入力（プロフィール URL でも @username でも）からユーザー名を取り出す
 func parseUsername(_ raw: String) -> String? {
-    var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    // 全角の英数や記号（＠や＿など）を半角に直す。日本語入力のまま打っても通すため
+    let half = raw.applyingTransform(StringTransform("Fullwidth-Halfwidth"), reverse: false) ?? raw
+    var s = half.trimmingCharacters(in: .whitespacesAndNewlines)
     if s.isEmpty { return nil }
     if let range = s.range(of: "x.com/") {
         s = String(s[range.upperBound...])
@@ -233,23 +235,25 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
     @objc func goProfile() {
         if let name = savedUsername() {
             webView.load(URLRequest(url: URL(string: "https://x.com/\(name)")!))
-        } else {
-            showProfileDialog()
+        } else if showProfileDialog(), let name = savedUsername() {
+            // 設定できたら、そのままプロフィールへ飛ぶ
+            webView.load(URLRequest(url: URL(string: "https://x.com/\(name)")!))
         }
     }
 
-    @objc func editProfile() { showProfileDialog() }
+    @objc func editProfile() { _ = showProfileDialog() }
 
     func savedUsername() -> String? {
         let s = UserDefaults.standard.string(forKey: "profileUsername")
         return (s?.isEmpty == false) ? s : nil
     }
 
-    /// プロフィール設定ダイアログ（URL でも @username でも可）
-    func showProfileDialog() {
+    /// プロフィール設定ダイアログ（URL でも @username でも可）。設定できたら true
+    @discardableResult
+    func showProfileDialog() -> Bool {
         let alert = NSAlert()
         alert.messageText = "自分のプロフィールを設定"
-        alert.informativeText = "下の縁のボタンで、自分のプロフィールへ飛べるようになります。プロフィールの URL か @ユーザー名 を入れてください。"
+        alert.informativeText = "下の縁のボタンで、自分のプロフィールへ飛べるようになります。プロフィールの URL か @ユーザー名 を入れてください（日本語入力のままでも大丈夫です）。"
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         field.placeholderString = "例: https://x.com/username または @username"
         if let name = savedUsername() { field.stringValue = "@" + name }
@@ -260,14 +264,16 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
         if alert.runModal() == .alertFirstButtonReturn {
             if let name = parseUsername(field.stringValue) {
                 UserDefaults.standard.set(name, forKey: "profileUsername")
+                return true
             } else {
                 let err = NSAlert()
                 err.messageText = "ユーザー名として読み取れませんでした"
                 err.informativeText = "入力は「https://x.com/ユーザー名」か「@ユーザー名」の形でお願いします。"
                 err.runModal()
-                showProfileDialog()
+                return showProfileDialog()
             }
         }
+        return false
     }
 
     // MARK: - 移動の振り分け
