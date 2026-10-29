@@ -250,7 +250,7 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
         alert.messageText = "自分のプロフィールを設定"
         alert.informativeText = "下の縁のボタンで、自分のプロフィールへ飛べるようになります。プロフィールの URL か @ユーザー名 を入れてください。"
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        field.placeholderString = "例: https://x.com/riryo3 または @riryo3"
+        field.placeholderString = "例: https://x.com/username または @username"
         if let name = savedUsername() { field.stringValue = "@" + name }
         alert.accessoryView = field
         alert.addButton(withTitle: "設定する")
