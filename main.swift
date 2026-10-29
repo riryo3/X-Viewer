@@ -1,7 +1,7 @@
 // X-Viewer — X（旧Twitter）を見るためだけの簡易ブラウザ
 // 中身は WKWebView ひとつ。X の中だけをこの窓で開き、
 // 外のサイトへのリンクは普段のブラウザで開く。
-// ボタンは画面の縁に広く配置する: 左端=戻る / 右端=進む / 上端=ホーム / 下端=自分のプロフィール。
+// ボタンは画面の縁に広く配置する: 左端=戻る / 右端=進む / 上端左=おすすめ / 上端右=フォロー中 / 下端=自分のプロフィール。
 import Cocoa
 import WebKit
 
@@ -91,6 +91,7 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
     var forwardZone: EdgeZone!
     var floatButton: NSButton!
     var floatOn = false
+    var pendingTabLabels: [String]?
     var observations: [NSKeyValueObservation] = []
 
     override func loadView() {
@@ -114,17 +115,22 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
         forwardZone.toolTip = "進む"
         forwardZone.onClick = { [weak self] in self?.goForward() }
 
-        let topZone = EdgeZone()
-        topZone.symbol = "house"
-        topZone.toolTip = "ホーム"
-        topZone.onClick = { [weak self] in self?.goHome() }
+        let topLeftZone = EdgeZone()
+        topLeftZone.symbol = "sparkles"
+        topLeftZone.toolTip = "おすすめ"
+        topLeftZone.onClick = { [weak self] in self?.goForYou() }
+
+        let topRightZone = EdgeZone()
+        topRightZone.symbol = "person.2"
+        topRightZone.toolTip = "フォロー中"
+        topRightZone.onClick = { [weak self] in self?.goFollowing() }
 
         let bottomZone = EdgeZone()
         bottomZone.symbol = "person.circle"
         bottomZone.toolTip = "プロフィール"
         bottomZone.onClick = { [weak self] in self?.goProfile() }
 
-        for zone in [backZone, forwardZone, topZone, bottomZone] {
+        for zone in [backZone, forwardZone, topLeftZone, topRightZone, bottomZone] {
             zone?.scrollTarget = webView
             zone?.translatesAutoresizingMaskIntoConstraints = false
         }
@@ -137,14 +143,15 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
         floatButton.target = self
         floatButton.action = #selector(toggleFloat)
         floatButton.translatesAutoresizingMaskIntoConstraints = false
-        topZone.addSubview(floatButton)
+        topRightZone.addSubview(floatButton)
 
         let container = NSView()
         container.addSubview(webView)
         container.addSubview(backZone)
         container.addSubview(forwardZone)
         container.addSubview(bottomZone)
-        container.addSubview(topZone)
+        container.addSubview(topLeftZone)
+        container.addSubview(topRightZone)
         webView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             webView.topAnchor.constraint(equalTo: container.topAnchor),
@@ -152,10 +159,15 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
             webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
-            topZone.topAnchor.constraint(equalTo: container.topAnchor),
-            topZone.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            topZone.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            topZone.heightAnchor.constraint(equalToConstant: 22),
+            topLeftZone.topAnchor.constraint(equalTo: container.topAnchor),
+            topLeftZone.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            topLeftZone.trailingAnchor.constraint(equalTo: container.centerXAnchor),
+            topLeftZone.heightAnchor.constraint(equalToConstant: 22),
+
+            topRightZone.topAnchor.constraint(equalTo: container.topAnchor),
+            topRightZone.leadingAnchor.constraint(equalTo: container.centerXAnchor),
+            topRightZone.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            topRightZone.heightAnchor.constraint(equalToConstant: 22),
 
             bottomZone.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             bottomZone.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -163,17 +175,17 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
             bottomZone.heightAnchor.constraint(equalToConstant: 22),
 
             backZone.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            backZone.topAnchor.constraint(equalTo: topZone.bottomAnchor),
+            backZone.topAnchor.constraint(equalTo: topLeftZone.bottomAnchor),
             backZone.bottomAnchor.constraint(equalTo: bottomZone.topAnchor),
             backZone.widthAnchor.constraint(equalToConstant: 18),
 
             forwardZone.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            forwardZone.topAnchor.constraint(equalTo: topZone.bottomAnchor),
+            forwardZone.topAnchor.constraint(equalTo: topRightZone.bottomAnchor),
             forwardZone.bottomAnchor.constraint(equalTo: bottomZone.topAnchor),
             forwardZone.widthAnchor.constraint(equalToConstant: 18),
 
-            floatButton.trailingAnchor.constraint(equalTo: topZone.trailingAnchor, constant: -2),
-            floatButton.centerYAnchor.constraint(equalTo: topZone.centerYAnchor),
+            floatButton.trailingAnchor.constraint(equalTo: topRightZone.trailingAnchor, constant: -2),
+            floatButton.centerYAnchor.constraint(equalTo: topRightZone.centerYAnchor),
             floatButton.widthAnchor.constraint(equalToConstant: 24),
         ])
         view = container
@@ -238,6 +250,43 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     @objc func editProfile() { showProfileDialog() }
+
+    // ホームのタブ切り替え（おすすめ／フォロー中）。
+    // X のホームは同じ URL の中でタブが分かれているので、
+    // ページを開いてから、タブを押す小さいスクリプトを流す。
+    @objc func goForYou() { openHomeTab(labels: ["おすすめ", "For you"]) }
+    @objc func goFollowing() { openHomeTab(labels: ["フォロー中", "Following"]) }
+
+    func openHomeTab(labels: [String]) {
+        pendingTabLabels = labels
+        if webView.url?.path == "/home" {
+            clickHomeTab()
+        } else {
+            webView.load(URLRequest(url: homeURL))
+        }
+    }
+
+    func clickHomeTab() {
+        guard let labels = pendingTabLabels else { return }
+        pendingTabLabels = nil
+        let jsLabels = labels.map { "\"\($0)\"" }.joined(separator: ",")
+        let js = """
+        (() => {
+          const labels = [\(jsLabels)];
+          let tries = 0;
+          const timer = setInterval(() => {
+            tries++;
+            const tabs = document.querySelectorAll('[role="tab"]');
+            for (const t of tabs) {
+              const text = t.textContent || '';
+              if (labels.some(l => text.includes(l))) { t.click(); clearInterval(timer); return; }
+            }
+            if (tries > 15) clearInterval(timer);
+          }, 200);
+        })()
+        """
+        webView.evaluateJavaScript(js)
+    }
 
     func savedUsername() -> String? {
         let s = UserDefaults.standard.string(forKey: "profileUsername")
@@ -309,7 +358,10 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
         return nil
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { updateButtons() }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        updateButtons()
+        clickHomeTab()
+    }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { updateButtons() }
 }
 
