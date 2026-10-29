@@ -12,7 +12,9 @@ let homeURL = URL(string: "https://x.com/home")!
 func parseUsername(_ raw: String) -> String? {
     // 全角の英数や記号（＠や＿など）を半角に直す。日本語入力のまま打っても通すため
     let half = raw.applyingTransform(StringTransform("Fullwidth-Halfwidth"), reverse: false) ?? raw
-    var s = half.trimmingCharacters(in: .whitespacesAndNewlines)
+    // 空白・改行・見えない文字は、場所を問わず全部取り除く（貼り付け時の混入対策）
+    var s = half.filter { !$0.isWhitespace }
+    s.removeAll { $0 == "\u{200B}" || $0 == "\u{FEFF}" }
     if s.isEmpty { return nil }
     if let range = s.range(of: "x.com/") {
         s = String(s[range.upperBound...])
