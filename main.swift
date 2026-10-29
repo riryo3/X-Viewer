@@ -4,6 +4,7 @@
 // ボタンは画面の縁に広く配置する: 左端=戻る / 右端=進む / 上端=ホーム / 下端=自分のプロフィール。
 import Cocoa
 import WebKit
+import ServiceManagement
 
 let homeURL = URL(string: "https://x.com/home")!
 
@@ -315,6 +316,7 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKUIDelegate
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow!
+    var loginMenuItem: NSMenuItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -323,16 +325,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.title = "X-Viewer"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.minSize = NSSize(width: 360, height: 480)
-        window.setContentSize(NSSize(width: 520, height: 860))
-        window.setFrameAutosaveName("XOnlyMainWindow") // 大きさと位置を覚える
+        // 前回の大きさと位置を復元する（保存が無い初回だけ中央に置く）
+        window.setFrameAutosaveName("XOnlyMainWindow")
+        if !window.setFrameUsingName("XOnlyMainWindow") {
+            window.setContentSize(NSSize(width: 520, height: 860))
+            window.center()
+        }
         window.backgroundColor = .windowBackgroundColor // システムの外観に倣う色
         window.delegate = self
-        window.center()
+        refreshLoginItem()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    // MARK: - ログイン時に開く
+
+    @objc func toggleLoginItem() {
+        guard #available(macOS 13.0, *) else { return }
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+            }
+        } catch {
+            // 登録できなかったときは何もしない（表示は実態に合わせて戻る）
+        }
+        refreshLoginItem()
+    }
+
+    func refreshLoginItem() {
+        guard #available(macOS 13.0, *), let item = loginMenuItem else { return }
+        item.state = SMAppService.mainApp.status == .enabled ? .on : .off
+    }
 
     // MARK: - ウインドウスナップ（画面の隅・他のウインドウの縁に吸着）
 
@@ -392,6 +420,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: "X-Viewer について", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem.separator())
+        if #available(macOS 13.0, *) {
+            loginMenuItem = NSMenuItem(title: "ログイン時に開く", action: #selector(toggleLoginItem), keyEquivalent: "")
+            loginMenuItem.target = self
+            appMenu.addItem(loginMenuItem)
+            appMenu.addItem(NSMenuItem.separator())
+        }
         appMenu.addItem(NSMenuItem(title: "X-Viewer を終了", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
